@@ -1315,7 +1315,6 @@ class TelegramSender:
 ✅ برای اتصال به پروکسی‌های MTProto و SOCKS5 از دکمه‌های زیر استفاده کنید.
 """
             + """
-<blockquote>👈 <a href="https://t.me/aristapanel/46625">دسترسی به جدیدترین کانفیگ‌ها</a></blockquote>
 ➖➖➖➖➖➖➖➖
 <blockquote>@AristaProxy</blockquote>
 ➖➖➖➖➖➖➖➖

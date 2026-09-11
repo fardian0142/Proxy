@@ -1373,7 +1373,7 @@ class ProxyScheduler:
             "and sticker."
         )
 
-        self.sender.delete_previous_messages()
+        # self.sender.delete_previous_messages()
 
         sent_in_run = []
 

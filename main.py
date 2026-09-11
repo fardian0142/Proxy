@@ -1317,7 +1317,7 @@ class TelegramSender:
             + """
 <blockquote>👈 <a href="https://t.me/aristapanel/46625">دسترسی به جدیدترین کانفیگ‌ها</a></blockquote>
 ➖➖➖➖➖➖➖➖
-<blockquote>@aristapanel</blockquote>
+<blockquote>@AristaProxy</blockquote>
 ➖➖➖➖➖➖➖➖
 #Arista #پروکسی #proxy #MTProto #SOCKS5
 <blockquote>مرگ بر جمهوری اسهالی</blockquote>"""

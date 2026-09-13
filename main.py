@@ -927,8 +927,6 @@ class MTProtoSocksExtractor:
                         ""
                     )
 
-                    message_number = None
-
                     if message_id:
                         try:
                             message_number = int(
@@ -1169,7 +1167,7 @@ class MTProtoSocksExtractor:
     def classify_proxy(
         self,
         proxy: str
-    ) -> str:
+    ) -> Optional[str]:
 
         proxy_lower = proxy.lower()
 
@@ -1205,7 +1203,7 @@ class MTProtoSocksExtractor:
         ):
             return "SOCKS5"
 
-        return "SOCKS5"
+        return None
 
     def collect_all_proxies(
         self
@@ -1213,6 +1211,7 @@ class MTProtoSocksExtractor:
 
         all_proxies = []
         seen = set()
+        unknown_rejected = 0
 
         logger.info(
             f"Starting collection from "
@@ -1244,13 +1243,21 @@ class MTProtoSocksExtractor:
                 if proxy in seen:
                     continue
 
-                seen.add(proxy)
-
                 proxy_type = (
                     self.classify_proxy(
                         proxy
                     )
                 )
+
+                if proxy_type is None:
+                    unknown_rejected += 1
+                    logger.warning(
+                        f"Rejected unknown proxy type: "
+                        f"{proxy[:80]}"
+                    )
+                    continue
+
+                seen.add(proxy)
 
                 all_proxies.append(
                     (
@@ -1285,7 +1292,8 @@ class MTProtoSocksExtractor:
             f"Total new proxies collected: "
             f"{len(all_proxies)} | "
             f"MTProto: {mtproto_count} | "
-            f"SOCKS5: {socks_count}"
+            f"SOCKS5: {socks_count} | "
+            f"Rejected unknown: {unknown_rejected}"
         )
 
         return all_proxies

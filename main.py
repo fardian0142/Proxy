@@ -40,6 +40,9 @@ if not BOT_TOKEN:
 
 CHANNELS = list(dict.fromkeys([
     "https://t.me/s/Config_HATunnel",
+    "https://t.me/s/rojproxy",
+    "https://t.me/s/FREE2CONFIG",
+    "https://t.me/s/v2raycollectorgroup",
     "https://t.me/s/oneclickvpnkeys",
     "https://t.me/s/ShadowProxy66",
     "https://t.me/s/xixv2ray",

@@ -11,7 +11,12 @@ import ipaddress
 
 from datetime import datetime, timedelta
 from typing import List, Tuple, Optional
-from urllib.parse import urlparse, urlencode, unquote
+from urllib.parse import (
+    urlparse,
+    urlencode,
+    unquote,
+    parse_qsl
+)
 
 from bs4 import BeautifulSoup
 
@@ -25,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
 CHANNEL_ID = int(
     os.environ.get(
         "CHANNEL_ID",
@@ -40,6 +46,7 @@ if not BOT_TOKEN:
 
 CHANNELS = list(dict.fromkeys([
     "https://t.me/s/Config_HATunnel",
+    "https://t.me/s/oneclickvpnkeys",
     "https://t.me/s/Proxy_mamlekat",
     "https://t.me/s/ShadowProxy66",
     "https://t.me/s/xixv2ray",
@@ -57,8 +64,23 @@ CHANNELS = list(dict.fromkeys([
 
 IPV4 = r"(?:25[0-5]|2[0-4]\d|1?\d?\d)"
 
+HOSTNAME = (
+    r"(?:"
+    r"[A-Za-z0-9]"
+    r"(?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"\.)+"
+    r"[A-Za-z]{2,63}"
+    r"|"
+    r"(?:"
+    r"[A-Za-z0-9]"
+    r"(?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r")"
+)
+
 
 PROXY_PATTERNS = [
+    rf"(https?://t\.me/webproxy\?[^\s<>\"'()]+)",
+    rf"(tg://webproxy\?[^\s<>\"'()]+)",
     rf"(mtproto://[^\s<>\"'()]+)",
     rf"(https?://t\.me/proxy\?[^\s<>\"'()]+)",
     rf"(https?://t\.me/socks\?[^\s<>\"'()]+)",
@@ -117,8 +139,15 @@ def get_db():
         DB_PATH,
         timeout=30
     )
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+
+    conn.execute(
+        "PRAGMA journal_mode=WAL"
+    )
+
+    conn.execute(
+        "PRAGMA busy_timeout=30000"
+    )
+
     return conn
 
 
@@ -559,6 +588,223 @@ class MTProtoSocksExtractor:
         except (TypeError, ValueError):
             return False
 
+    def validate_hostname(
+        self,
+        value: str
+    ) -> bool:
+
+        if not value:
+            return False
+
+        value = value.strip()
+
+        if len(value) > 253:
+            return False
+
+        if value.endswith("."):
+            value = value[:-1]
+
+        if not value:
+            return False
+
+        try:
+            ipaddress.IPv4Address(value)
+            return True
+        except ValueError:
+            pass
+
+        if value.lower() == "localhost":
+            return False
+
+        if not re.fullmatch(
+            HOSTNAME,
+            value
+        ):
+            return False
+
+        labels = value.split(".")
+
+        for label in labels:
+
+            if not label:
+                return False
+
+            if len(label) > 63:
+                return False
+
+            if (
+                label.startswith("-")
+                or label.endswith("-")
+            ):
+                return False
+
+        return True
+
+    def validate_secret(
+        self,
+        value: str
+    ) -> bool:
+
+        if not value:
+            return False
+
+        value = value.strip()
+
+        if len(value) > 4096:
+            return False
+
+        if any(
+            char in value
+            for char in (
+                "\r",
+                "\n",
+                "\t",
+                " "
+            )
+        ):
+            return False
+
+        return True
+
+    def validate_webproxy(
+        self,
+        proxy: str
+    ) -> bool:
+
+        try:
+            parsed = urlparse(
+                proxy
+            )
+
+            scheme = (
+                parsed.scheme.lower()
+            )
+
+            netloc = (
+                parsed.netloc.lower()
+            )
+
+            path = (
+                parsed.path.lower()
+            )
+
+            if scheme == "tg":
+
+                if netloc != "webproxy":
+                    return False
+
+                if path not in ("", "/"):
+                    return False
+
+            elif scheme in (
+                "http",
+                "https"
+            ):
+
+                if netloc != "t.me":
+                    return False
+
+                if path != "/webproxy":
+                    return False
+
+            else:
+                return False
+
+            query_items = parse_qsl(
+                parsed.query,
+                keep_blank_values=True
+            )
+
+            query = {}
+
+            for key, value in query_items:
+                query[key.lower()] = value
+
+            server = (
+                query.get("server")
+                or query.get("host")
+            )
+
+            secret = query.get(
+                "secret"
+            )
+
+            if not server:
+                return False
+
+            if not secret:
+                return False
+
+            if not self.validate_hostname(
+                server
+            ):
+                return False
+
+            if not self.validate_secret(
+                secret
+            ):
+                return False
+
+            return True
+
+        except Exception:
+            return False
+
+    def validate_standard_proxy_url(
+        self,
+        proxy: str
+    ) -> bool:
+
+        try:
+            parsed = urlparse(
+                proxy
+            )
+
+            scheme = (
+                parsed.scheme.lower()
+            )
+
+            if scheme in (
+                "http",
+                "https"
+            ):
+
+                if (
+                    parsed.netloc.lower()
+                    != "t.me"
+                ):
+                    return False
+
+                if parsed.path.lower() not in (
+                    "/proxy",
+                    "/socks"
+                ):
+                    return False
+
+            elif scheme == "tg":
+
+                if parsed.netloc.lower() not in (
+                    "proxy",
+                    "socks"
+                ):
+                    return False
+
+            elif scheme in (
+                "mtproto",
+                "socks5"
+            ):
+                return True
+
+            else:
+                return False
+
+            return bool(
+                parsed.query
+            )
+
+        except Exception:
+            return False
+
     def normalize_proxy(
         self,
         proxy: str
@@ -578,40 +824,55 @@ class MTProtoSocksExtractor:
 
         lower = proxy.lower()
 
-        if lower.startswith(
-            "http://t.me/proxy?"
+        if (
+            lower.startswith(
+                "https://t.me/webproxy?"
+            )
+            or lower.startswith(
+                "http://t.me/webproxy?"
+            )
+            or lower.startswith(
+                "tg://webproxy?"
+            )
         ):
-            return proxy
 
-        if lower.startswith(
-            "https://t.me/proxy?"
-        ):
-            return proxy
+            if self.validate_webproxy(
+                proxy
+            ):
+                return proxy
 
-        if lower.startswith(
-            "http://t.me/socks?"
-        ):
-            return proxy
+            return ""
 
-        if lower.startswith(
-            "https://t.me/socks?"
+        if (
+            lower.startswith(
+                "http://t.me/proxy?"
+            )
+            or lower.startswith(
+                "https://t.me/proxy?"
+            )
+            or lower.startswith(
+                "http://t.me/socks?"
+            )
+            or lower.startswith(
+                "https://t.me/socks?"
+            )
+            or lower.startswith(
+                "tg://proxy?"
+            )
+            or lower.startswith(
+                "tg://socks?"
+            )
+            or lower.startswith(
+                "mtproto://"
+            )
         ):
-            return proxy
 
-        if lower.startswith(
-            "tg://proxy?"
-        ):
-            return proxy
+            if self.validate_standard_proxy_url(
+                proxy
+            ):
+                return proxy
 
-        if lower.startswith(
-            "tg://socks?"
-        ):
-            return proxy
-
-        if lower.startswith(
-            "mtproto://"
-        ):
-            return proxy
+            return ""
 
         if lower.startswith(
             "socks5://"
@@ -626,7 +887,7 @@ class MTProtoSocksExtractor:
                     not parsed.hostname
                     or not parsed.port
                 ):
-                    return proxy
+                    return ""
 
                 server = parsed.hostname
                 port = parsed.port
@@ -634,7 +895,7 @@ class MTProtoSocksExtractor:
                 if not self.validate_port(
                     str(port)
                 ):
-                    return proxy
+                    return ""
 
                 params = [
                     (
@@ -675,7 +936,7 @@ class MTProtoSocksExtractor:
                 )
 
             except Exception:
-                return proxy
+                return ""
 
         match = re.match(
             rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}}):([a-fA-F0-9]+)$",
@@ -697,6 +958,8 @@ class MTProtoSocksExtractor:
                     f"&port={port}"
                     f"&secret={secret.lower()}"
                 )
+
+            return ""
 
         match = re.match(
             rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}}):([^:\s]+):([^:\s]+)$",
@@ -721,6 +984,8 @@ class MTProtoSocksExtractor:
                     f"&pass={password}"
                 )
 
+            return ""
+
         match = re.match(
             rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}})$",
             proxy
@@ -740,7 +1005,9 @@ class MTProtoSocksExtractor:
                     f"&port={port}"
                 )
 
-        return proxy
+            return ""
+
+        return ""
 
     def fetch_page(
         self,
@@ -754,6 +1021,7 @@ class MTProtoSocksExtractor:
         )
 
         if before is not None:
+
             separator = (
                 "&"
                 if "?" in telegram_url
@@ -779,6 +1047,7 @@ class MTProtoSocksExtractor:
                     return response.text
 
                 if response.status_code == 429:
+
                     retry_after = (
                         response.headers.get(
                             "Retry-After"
@@ -790,6 +1059,7 @@ class MTProtoSocksExtractor:
                             int(retry_after),
                             30
                         )
+
                     except (
                         TypeError,
                         ValueError
@@ -811,6 +1081,7 @@ class MTProtoSocksExtractor:
             except requests.RequestException as e:
 
                 if attempt >= REQUEST_RETRIES:
+
                     logger.warning(
                         f"Channel request error: "
                         f"{url} - {e}"
@@ -830,9 +1101,11 @@ class MTProtoSocksExtractor:
     ) -> List[str]:
 
         if self.should_skip_channel(url):
+
             logger.info(
                 f"Skipping dead channel: {url}"
             )
+
             return []
 
         result = []
@@ -866,10 +1139,9 @@ class MTProtoSocksExtractor:
             )
 
             if not html:
+
                 if page_number == 1:
-                    self.update_dead_cache(
-                        url
-                    )
+                    self.update_dead_cache(url)
                     return []
 
                 break
@@ -888,12 +1160,14 @@ class MTProtoSocksExtractor:
                 )
 
                 if not messages:
+
                     messages = soup.find_all(
                         "div",
                         class_="tgme_widget_message_wrap"
                     )
 
                 if not messages:
+
                     logger.warning(
                         f"{url} -> no Telegram "
                         f"messages found on page "
@@ -901,9 +1175,7 @@ class MTProtoSocksExtractor:
                     )
 
                     if page_number == 1:
-                        self.update_dead_cache(
-                            url
-                        )
+                        self.update_dead_cache(url)
 
                     break
 
@@ -920,6 +1192,7 @@ class MTProtoSocksExtractor:
                         and scanned_messages
                         >= MAX_MESSAGES_PER_CHANNEL
                     ):
+
                         stop_scanning = True
                         break
 
@@ -929,7 +1202,9 @@ class MTProtoSocksExtractor:
                     )
 
                     if message_id:
+
                         try:
+
                             message_number = int(
                                 message_id.rsplit(
                                     "/",
@@ -1036,7 +1311,10 @@ class MTProtoSocksExtractor:
                             href.lower()
                         )
 
-                        if "joinchat" in href_lower:
+                        if (
+                            "joinchat"
+                            in href_lower
+                        ):
                             continue
 
                         if "/+" in href:
@@ -1044,6 +1322,15 @@ class MTProtoSocksExtractor:
 
                         valid = (
                             href_lower.startswith(
+                                "tg://webproxy?"
+                            )
+                            or href_lower.startswith(
+                                "https://t.me/webproxy?"
+                            )
+                            or href_lower.startswith(
+                                "http://t.me/webproxy?"
+                            )
+                            or href_lower.startswith(
                                 "tg://proxy?"
                             )
                             or href_lower.startswith(
@@ -1136,14 +1423,17 @@ class MTProtoSocksExtractor:
                 time.sleep(0.3)
 
             except Exception as e:
+
                 logger.error(
                     f"Extraction failed for "
                     f"{url} on page "
                     f"{page_number}: {e}"
                 )
+
                 break
 
         if pages_loaded == 0:
+
             self.update_dead_cache(url)
             return []
 
@@ -1171,6 +1461,19 @@ class MTProtoSocksExtractor:
     ) -> Optional[str]:
 
         proxy_lower = proxy.lower()
+
+        if (
+            proxy_lower.startswith(
+                "tg://webproxy?"
+            )
+            or proxy_lower.startswith(
+                "https://t.me/webproxy?"
+            )
+            or proxy_lower.startswith(
+                "http://t.me/webproxy?"
+            )
+        ):
+            return "WEB"
 
         if (
             proxy_lower.startswith(
@@ -1251,11 +1554,14 @@ class MTProtoSocksExtractor:
                 )
 
                 if proxy_type is None:
+
                     unknown_rejected += 1
+
                     logger.warning(
                         f"Rejected unknown proxy type: "
                         f"{proxy[:80]}"
                     )
+
                     continue
 
                 seen.add(proxy)
@@ -1289,11 +1595,19 @@ class MTProtoSocksExtractor:
             if proxy_type == "SOCKS5"
         )
 
+        web_count = sum(
+            1
+            for _, proxy_type
+            in all_proxies
+            if proxy_type == "WEB"
+        )
+
         logger.info(
             f"Total new proxies collected: "
             f"{len(all_proxies)} | "
             f"MTProto: {mtproto_count} | "
             f"SOCKS5: {socks_count} | "
+            f"WEB: {web_count} | "
             f"Rejected unknown: {unknown_rejected}"
         )
 
@@ -1321,6 +1635,7 @@ class TelegramSender:
     ) -> Optional[dict]:
 
         try:
+
             response = requests.post(
                 f"{self.api}/{method}",
                 data=data,
@@ -1331,6 +1646,7 @@ class TelegramSender:
                 result = response.json()
 
             except ValueError:
+
                 result = {
                     "ok": False,
                     "description": response.text
@@ -1340,6 +1656,7 @@ class TelegramSender:
                 not response.ok
                 or not result.get("ok")
             ):
+
                 logger.error(
                     f"Telegram {method} failed: "
                     f"HTTP {response.status_code} - "
@@ -1446,6 +1763,13 @@ class TelegramSender:
                     "url": proxy
                 })
 
+            elif proxy_type == "WEB":
+
+                row.append({
+                    "text": "WEB Proxy",
+                    "url": proxy
+                })
+
             if len(row) == 4:
 
                 keyboard.append(row)
@@ -1470,12 +1794,12 @@ class TelegramSender:
             """🅿🆁🅾🆇🆈
 
 🛜 پروکسی‌های جدید.
-✅ برای اتصال به پروکسی‌های MTProto و SOCKS5 از دکمه‌های زیر استفاده کنید.
+✅ برای اتصال به پروکسی‌های MTProto، SOCKS5 و WEB Proxy از دکمه‌های زیر استفاده کنید.
 
 ➖➖➖➖➖➖➖➖
 <blockquote>@AristaProxy</blockquote>
 ➖➖➖➖➖➖➖➖
-#Arista #پروکسی #proxy #MTProto #SOCKS5
+#Arista #پروکسی #proxy #MTProto #SOCKS5 #WEBProxy
 <blockquote>مرگ بر جمهوری اسهالی</blockquote>"""
         )
 

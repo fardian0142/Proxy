@@ -75,7 +75,7 @@ PROXY_PATTERNS = [
 
 
 WEBPROXY_PATTERNS = [
-    rf"(https?://(?:t|telegram)\.me/webproxy\?[^\s<>\"'()]+)",
+    rf"(https?://t\.me/webproxy\?[^\s<>\"'()]+)",
     rf"(tg://webproxy\?[^\s<>\"'()]+)"
 ]
 
@@ -119,22 +119,6 @@ DB_PATH = "sent_proxies.db"
 STICKER_ID = (
     "CAACAgQAAxkBAAFQIL5qZXtiZQTtLDIR56wqlUYO_JqmZgACvBsAAl2aMFOFxfprKF6fCz0E"
 )
-
-
-WEBPROXY_PREFIXES = (
-    "https://t.me/webproxy?",
-    "http://t.me/webproxy?",
-    "https://telegram.me/webproxy?",
-    "http://telegram.me/webproxy?",
-    "tg://webproxy?",
-)
-
-
-def is_webproxy_string(value: str) -> bool:
-    if not value:
-        return False
-
-    return value.lower().startswith(WEBPROXY_PREFIXES)
 
 
 def get_db():
@@ -617,14 +601,44 @@ class MTProtoSocksExtractor:
         url: str
     ) -> bool:
 
-        return is_webproxy_string(url)
+        if not url:
+            return False
+
+        url_lower = url.lower()
+
+        return (
+            url_lower.startswith(
+                "https://t.me/webproxy?"
+            )
+            or url_lower.startswith(
+                "http://t.me/webproxy?"
+            )
+            or url_lower.startswith(
+                "tg://webproxy?"
+            )
+        )
 
     def is_webproxy(
         self,
         proxy: str
     ) -> bool:
 
-        return is_webproxy_string(proxy)
+        if not proxy:
+            return False
+
+        proxy_lower = proxy.lower()
+
+        return (
+            proxy_lower.startswith(
+                "https://t.me/webproxy?"
+            )
+            or proxy_lower.startswith(
+                "http://t.me/webproxy?"
+            )
+            or proxy_lower.startswith(
+                "tg://webproxy?"
+            )
+        )
 
     def normalize_webproxy(
         self,
@@ -687,9 +701,6 @@ class MTProtoSocksExtractor:
             .replace("&amp;", "&")
             .replace("&#x26;", "&")
         )
-
-        if self.is_webproxy(proxy):
-            return proxy
 
         lower = proxy.lower()
 
@@ -1082,25 +1093,15 @@ class MTProtoSocksExtractor:
 
                     scanned_messages += 1
 
-                    found_webproxy_from_text = (
-                        self.extract_webproxy_from_text(
+                    found_from_text = (
+                        self.extract_from_text(
                             message_text
                         )
                     )
 
-                    sanitized_text = message_text
-
-                    for wp in found_webproxy_from_text:
-                        sanitized_text = (
-                            sanitized_text.replace(
-                                wp,
-                                " "
-                            )
-                        )
-
-                    found_from_text = (
-                        self.extract_from_text(
-                            sanitized_text
+                    found_webproxy_from_text = (
+                        self.extract_webproxy_from_text(
+                            message_text
                         )
                     )
 
@@ -1116,20 +1117,15 @@ class MTProtoSocksExtractor:
                         len(result)
                     )
 
-                    for found_proxy in found_webproxy_from_text:
+                    for found_proxy in found_from_text:
 
                         normalized = (
-                            self.normalize_webproxy(
+                            self.normalize_proxy(
                                 found_proxy
                             )
                         )
 
                         if not normalized:
-                            continue
-
-                        if not self.is_webproxy(
-                            normalized
-                        ):
                             continue
 
                         if normalized in seen:
@@ -1145,25 +1141,15 @@ class MTProtoSocksExtractor:
                         seen.add(normalized)
                         result.append(normalized)
 
-                    for found_proxy in found_from_text:
-
-                        if self.is_webproxy(
-                            found_proxy
-                        ):
-                            continue
+                    for found_proxy in found_webproxy_from_text:
 
                         normalized = (
-                            self.normalize_proxy(
+                            self.normalize_webproxy(
                                 found_proxy
                             )
                         )
 
                         if not normalized:
-                            continue
-
-                        if self.is_webproxy(
-                            normalized
-                        ):
                             continue
 
                         if normalized in seen:
@@ -1227,11 +1213,6 @@ class MTProtoSocksExtractor:
                             if not normalized:
                                 continue
 
-                            if not self.is_webproxy(
-                                normalized
-                            ):
-                                continue
-
                             button_proxies += 1
 
                             if normalized in seen:
@@ -1286,11 +1267,6 @@ class MTProtoSocksExtractor:
                         )
 
                         if not normalized:
-                            continue
-
-                        if self.is_webproxy(
-                            normalized
-                        ):
                             continue
 
                         button_proxies += 1
@@ -1383,10 +1359,20 @@ class MTProtoSocksExtractor:
         proxy: str
     ) -> Optional[str]:
 
-        if self.is_webproxy(proxy):
-            return "WEB Proxy"
-
         proxy_lower = proxy.lower()
+
+        if (
+            proxy_lower.startswith(
+                "https://t.me/webproxy?"
+            )
+            or proxy_lower.startswith(
+                "http://t.me/webproxy?"
+            )
+            or proxy_lower.startswith(
+                "tg://webproxy?"
+            )
+        ):
+            return "WEB Proxy"
 
         if (
             proxy_lower.startswith(

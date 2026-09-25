@@ -59,6 +59,10 @@ CHANNELS = list(dict.fromkeys([
 
 
 IPV4 = r"(?:25[0-5]|2[0-4]\d|1?\d?\d)"
+IPV4_FULL = rf"{IPV4}(?:\.{IPV4}){{3}}"
+
+MT_SECRET = r"[A-Za-z0-9_\-+/=]{16,}"
+SOCKS_CRED = r"[^:\s]+"
 
 
 PROXY_PATTERNS = [
@@ -68,14 +72,13 @@ PROXY_PATTERNS = [
     rf"(tg://proxy\?[^\s<>\"'()]+)",
     rf"(tg://socks\?[^\s<>\"'()]+)",
     rf"(socks5://[^\s<>\"'()]+)",
-    rf"((?:{IPV4}\.){{3}}{IPV4}:\d{{1,5}}:[a-fA-F0-9]+)",
-    rf"((?:{IPV4}\.){{3}}{IPV4}:\d{{1,5}}:[^:\s]+:[^:\s]+)",
-    rf"((?:{IPV4}\.){{3}}{IPV4}:\d{{1,5}})"
+    rf"({IPV4_FULL}:\d{{1,5}}:{MT_SECRET})",
+    rf"({IPV4_FULL}:\d{{1,5}}:{SOCKS_CRED}:{SOCKS_CRED})"
 ]
 
 
 WEBPROXY_PATTERNS = [
-    rf"(https?://t\.me/webproxy\?[^\s<>\"'()]+)",
+    rf"(https?://(?:t|telegram)\.me/webproxy\?[^\s<>\"'()]+)",
     rf"(tg://webproxy\?[^\s<>\"'()]+)"
 ]
 
@@ -119,6 +122,22 @@ DB_PATH = "sent_proxies.db"
 STICKER_ID = (
     "CAACAgQAAxkBAAFQIL5qZXtiZQTtLDIR56wqlUYO_JqmZgACvBsAAl2aMFOFxfprKF6fCz0E"
 )
+
+
+WEBPROXY_PREFIXES = (
+    "https://t.me/webproxy?",
+    "http://t.me/webproxy?",
+    "https://telegram.me/webproxy?",
+    "http://telegram.me/webproxy?",
+    "tg://webproxy?",
+)
+
+
+def is_webproxy_string(value: str) -> bool:
+    if not value:
+        return False
+
+    return value.lower().startswith(WEBPROXY_PREFIXES)
 
 
 def get_db():
@@ -601,44 +620,14 @@ class MTProtoSocksExtractor:
         url: str
     ) -> bool:
 
-        if not url:
-            return False
-
-        url_lower = url.lower()
-
-        return (
-            url_lower.startswith(
-                "https://t.me/webproxy?"
-            )
-            or url_lower.startswith(
-                "http://t.me/webproxy?"
-            )
-            or url_lower.startswith(
-                "tg://webproxy?"
-            )
-        )
+        return is_webproxy_string(url)
 
     def is_webproxy(
         self,
         proxy: str
     ) -> bool:
 
-        if not proxy:
-            return False
-
-        proxy_lower = proxy.lower()
-
-        return (
-            proxy_lower.startswith(
-                "https://t.me/webproxy?"
-            )
-            or proxy_lower.startswith(
-                "http://t.me/webproxy?"
-            )
-            or proxy_lower.startswith(
-                "tg://webproxy?"
-            )
-        )
+        return is_webproxy_string(proxy)
 
     def normalize_webproxy(
         self,
@@ -701,6 +690,9 @@ class MTProtoSocksExtractor:
             .replace("&amp;", "&")
             .replace("&#x26;", "&")
         )
+
+        if self.is_webproxy(proxy):
+            return proxy
 
         lower = proxy.lower()
 
@@ -804,7 +796,32 @@ class MTProtoSocksExtractor:
                 return proxy
 
         match = re.match(
-            rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}}):([a-fA-F0-9]+)$",
+            rf"^({IPV4_FULL}):(\d{{1,5}}):([^:\s]+):([^:\s]+)$",
+            proxy
+        )
+
+        if match:
+            ip = match.group(1)
+            port = match.group(2)
+            user = match.group(3)
+            password = match.group(4)
+
+            if (
+                self.validate_ipv4(ip)
+                and self.validate_port(port)
+                and len(user) <= 64
+                and len(password) <= 128
+            ):
+                return (
+                    f"tg://socks?"
+                    f"server={ip}"
+                    f"&port={port}"
+                    f"&user={user}"
+                    f"&pass={password}"
+                )
+
+        match = re.match(
+            rf"^({IPV4_FULL}):(\d{{1,5}}):([A-Za-z0-9_\-+/=]{{16,}})$",
             proxy
         )
 
@@ -821,49 +838,7 @@ class MTProtoSocksExtractor:
                     f"tg://proxy?"
                     f"server={ip}"
                     f"&port={port}"
-                    f"&secret={secret.lower()}"
-                )
-
-        match = re.match(
-            rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}}):([^:\s]+):([^:\s]+)$",
-            proxy
-        )
-
-        if match:
-            ip = match.group(1)
-            port = match.group(2)
-            user = match.group(3)
-            password = match.group(4)
-
-            if (
-                self.validate_ipv4(ip)
-                and self.validate_port(port)
-            ):
-                return (
-                    f"tg://socks?"
-                    f"server={ip}"
-                    f"&port={port}"
-                    f"&user={user}"
-                    f"&pass={password}"
-                )
-
-        match = re.match(
-            rf"^({IPV4}(?:\.{IPV4}){{3}}):(\d{{1,5}})$",
-            proxy
-        )
-
-        if match:
-            ip = match.group(1)
-            port = match.group(2)
-
-            if (
-                self.validate_ipv4(ip)
-                and self.validate_port(port)
-            ):
-                return (
-                    f"tg://socks?"
-                    f"server={ip}"
-                    f"&port={port}"
+                    f"&secret={secret}"
                 )
 
         return proxy
@@ -1093,15 +1068,25 @@ class MTProtoSocksExtractor:
 
                     scanned_messages += 1
 
-                    found_from_text = (
-                        self.extract_from_text(
+                    found_webproxy_from_text = (
+                        self.extract_webproxy_from_text(
                             message_text
                         )
                     )
 
-                    found_webproxy_from_text = (
-                        self.extract_webproxy_from_text(
-                            message_text
+                    sanitized_text = message_text
+
+                    for wp in found_webproxy_from_text:
+                        sanitized_text = (
+                            sanitized_text.replace(
+                                wp,
+                                " "
+                            )
+                        )
+
+                    found_from_text = (
+                        self.extract_from_text(
+                            sanitized_text
                         )
                     )
 
@@ -1117,15 +1102,20 @@ class MTProtoSocksExtractor:
                         len(result)
                     )
 
-                    for found_proxy in found_from_text:
+                    for found_proxy in found_webproxy_from_text:
 
                         normalized = (
-                            self.normalize_proxy(
+                            self.normalize_webproxy(
                                 found_proxy
                             )
                         )
 
                         if not normalized:
+                            continue
+
+                        if not self.is_webproxy(
+                            normalized
+                        ):
                             continue
 
                         if normalized in seen:
@@ -1141,15 +1131,25 @@ class MTProtoSocksExtractor:
                         seen.add(normalized)
                         result.append(normalized)
 
-                    for found_proxy in found_webproxy_from_text:
+                    for found_proxy in found_from_text:
+
+                        if self.is_webproxy(
+                            found_proxy
+                        ):
+                            continue
 
                         normalized = (
-                            self.normalize_webproxy(
+                            self.normalize_proxy(
                                 found_proxy
                             )
                         )
 
                         if not normalized:
+                            continue
+
+                        if self.is_webproxy(
+                            normalized
+                        ):
                             continue
 
                         if normalized in seen:
@@ -1213,6 +1213,11 @@ class MTProtoSocksExtractor:
                             if not normalized:
                                 continue
 
+                            if not self.is_webproxy(
+                                normalized
+                            ):
+                                continue
+
                             button_proxies += 1
 
                             if normalized in seen:
@@ -1267,6 +1272,11 @@ class MTProtoSocksExtractor:
                         )
 
                         if not normalized:
+                            continue
+
+                        if self.is_webproxy(
+                            normalized
+                        ):
                             continue
 
                         button_proxies += 1
@@ -1359,20 +1369,10 @@ class MTProtoSocksExtractor:
         proxy: str
     ) -> Optional[str]:
 
-        proxy_lower = proxy.lower()
-
-        if (
-            proxy_lower.startswith(
-                "https://t.me/webproxy?"
-            )
-            or proxy_lower.startswith(
-                "http://t.me/webproxy?"
-            )
-            or proxy_lower.startswith(
-                "tg://webproxy?"
-            )
-        ):
+        if self.is_webproxy(proxy):
             return "WEB Proxy"
+
+        proxy_lower = proxy.lower()
 
         if (
             proxy_lower.startswith(
